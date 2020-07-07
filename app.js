@@ -5,7 +5,7 @@ const express = require("express");
 const ejs = require('ejs');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-const encrypt = require('mongoose-encryption');
+const md5 = require('md5');
 
 const app = express();
 
@@ -27,10 +27,6 @@ const userSchema = new mongoose.Schema({
   password: String
 });
 
-userSchema.plugin(encrypt, {
-  secret: secret, encryptedFields: ['password']
-});
-
 
 const User = mongoose.model("User", userSchema);
 
@@ -41,38 +37,7 @@ app.route("/")
     res.render("home");
   });
 
-
-app.route("/login")
-  // Login GET request handler
-  .get(function(req, res) {
-    res.render("login");
-  })
-  // Login POST request handler
-  .post(function(req, res) {
-    User.findOne({
-      email: req.body.username
-    }, function(err, result) {
-      if (!err) {
-        if (result) {
-          if (result.password === req.body.password) {
-            console.log("Login successful");
-            res.render("secrets");
-          } else {
-            res.render("login");
-            console.log("Invalid password, please try again");
-          }
-        } else {
-          res.render("login");
-          console.log("No user matches the provided email, check for typos or head to the registration page");
-        }
-      } else {
-        res.render("login");
-        console.error(err);
-      }
-    });
-  });
-
-
+// CHAINED requests for register route
 app.route("/register")
   // Register GET request handler
   .get(function(req, res) {
@@ -83,7 +48,7 @@ app.route("/register")
     // Create new user
     const newUser = new User({
       email: req.body.username,
-      password: req.body.password
+      password: md5(req.body.password)
     });
     // save new user
     newUser.save(function(err) {
@@ -95,6 +60,40 @@ app.route("/register")
       }
     });
   });
+
+
+// CHAINED requests for login route
+app.route("/login")
+  // Login GET request handler
+  .get(function(req, res) {
+    res.render("login");
+  })
+  // Login POST request handler
+  .post(function(req, res) {
+    const username = req.body.username;
+    const password = req.body.password;
+    User.findOne({
+      email: username
+    }, function(err, result) {
+      if (!err) {
+        if (result) {
+          if (result.password === md5(password)) {
+            res.render("secrets");
+          } else {
+            res.render("login");
+          }
+        } else {
+          res.render("login");
+        }
+      } else {
+        res.render("login");
+        console.error(err);
+      }
+    });
+  });
+
+
+
 
 
 

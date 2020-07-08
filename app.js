@@ -1,37 +1,57 @@
 //jshint esversion:6
 
 require("dotenv").config();
-const express = require("express");
 const ejs = require('ejs');
-const bodyParser = require('body-parser');
+const express = require("express");
+const passport = require('passport');
 const mongoose = require('mongoose');
-const bcrypt = require("bcrypt");
-const saltRounds = 10;
+const bodyParser = require('body-parser');
+const session = require('express-session');
+const passportLocalMongoose = require('passport-local-mongoose');
 
-const app = express();
-
-const secret = process.env.SECRET;
-
-app.set("view engine", "ejs");
-app.use(bodyParser.urlencoded({
-  extended: true
-}));
-app.use(express.static("public"));
-
-
+// connect to database
 mongoose.connect("mongodb://localhost:27017/userDB", {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
+mongoose.set('useCreateIndex', true);
 
+const app = express();
+const secret = process.env.SECRET;
+
+app.set("view engine", "ejs");
+app.use(express.static("public"));
+app.use(bodyParser.urlencoded({
+  extended: true
+}));
+// init express-session
+app.use(session({
+  secret: secret,
+  resave: false,
+  saveUninitialized: false
+}));
+// init passport
+app.use(passport.initialize());
+app.use(passport.session());
+
+
+
+// create user schema
 const userSchema = new mongoose.Schema({
   email: String,
   password: String
 });
-
-
+// add passportLocalMongoose plugin to schema
+userSchema.plugin(passportLocalMongoose);
 const User = mongoose.model("User", userSchema);
 
+// create authentication strategy for user.
+passport.use(User.createStrategy());
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+
+
+// ================================== BODY ==================================
 
 // CHAINED requests for home route
 app.route("/")
@@ -39,78 +59,72 @@ app.route("/")
     res.render("home");
   });
 
+// CHAINED requests for secrets route
+app.route("/secrets")
+  .get(function(req, res) {
+    if (req.isAuthenticated()) {
+      res.render("secrets");
+    } else {
+      res.redirect("/login");
+    }
+  });
+
 // CHAINED requests for register route
 app.route("/register")
-  // Register GET request handler
   .get(function(req, res) {
     res.render("register");
   })
-  // Register POST request handler
   .post(function(req, res) {
-    // salt and hash user password
-    bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
-      // Create new user
-      const newUser = new User({
-        email: req.body.username,
-        password: hash
-      });
-      // save new user
-      newUser.save(function(err) {
-        if (err) {
-          res.render("register");
-          console.error(err);
-        } else {
-          res.render("secrets");
-        }
-      });
+    User.register({username: req.body.username}, req.body.password, function(err, user) {
+      if (err) {
+        console.error(err);
+        res.redirect("/register");
+      } else {
+        passport.authenticate("local")(req, res, function(err){
+          res.redirect("/secrets");
+        });
+      }
     });
   });
 
 
 // CHAINED requests for login route
 app.route("/login")
-  // Login GET request handler
   .get(function(req, res) {
     res.render("login");
   })
-  // Login POST request handler
   .post(function(req, res) {
-    const username = req.body.username;
-    const password = req.body.password;
-    // Query database using user email.
-    User.findOne({
-      email: username
-    }, function(err, result) {
-      if (!err) {
-        if (result) {
-          // compare password hashes using bcrypt
-          bcrypt.compare(password, result.password, function(err, result) {
-            if (!err) {
-              if (result) {
-                res.render("secrets");
-                console.log("Login successful.");
-              } else {
-                res.render("login");
-                console.log("Invalid password.");
-              }
-            } else {
-              console.error(err);
-            }
-          });
-        } else {
-          res.render("login");
-        }
-      } else {
-        res.render("login");
+    newUser = new User({
+      username: req.body.username,
+      password: req.body.password
+    });
+    req.login(newUser, function(err) {
+      if (err) {
         console.error(err);
+        res.redirect("/login");
+      } else {
+        passport.authenticate("local")(req, res, function(err) {
+          if (err) {
+            console.error(err);
+            res.redirect("/login");
+          } else {
+            res.redirect("/secrets");
+          }
+        });
       }
     });
   });
 
-
-
-
-
+// CHAINED requests for logout route
+app.route("/logout")
+  .get(function(req, res) {
+    if (req.isAuthenticated()) {
+      req.logout();
+      res.redirect("/");
+    } else {
+      res.redirect("/");
+    }
+  });
 
 
 app.listen(3000, function() {

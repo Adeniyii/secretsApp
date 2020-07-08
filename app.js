@@ -5,19 +5,21 @@ const express = require("express");
 const ejs = require('ejs');
 const bodyParser = require('body-parser');
 const mongoose = require('mongoose');
-const md5 = require('md5');
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
 
 const app = express();
 
 const secret = process.env.SECRET;
 
 app.set("view engine", "ejs");
-app.use(bodyParser.urlencoded({extended: true}));
+app.use(bodyParser.urlencoded({
+  extended: true
+}));
 app.use(express.static("public"));
 
 
-mongoose.connect("mongodb://localhost:27017/userDB",
-{
+mongoose.connect("mongodb://localhost:27017/userDB", {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
@@ -45,19 +47,22 @@ app.route("/register")
   })
   // Register POST request handler
   .post(function(req, res) {
-    // Create new user
-    const newUser = new User({
-      email: req.body.username,
-      password: md5(req.body.password)
-    });
-    // save new user
-    newUser.save(function(err) {
-      if (err) {
-        res.render("register");
-        console.error(err);
-      } else {
-        res.render("secrets");
-      }
+    // salt and hash user password
+    bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
+      // Create new user
+      const newUser = new User({
+        email: req.body.username,
+        password: hash
+      });
+      // save new user
+      newUser.save(function(err) {
+        if (err) {
+          res.render("register");
+          console.error(err);
+        } else {
+          res.render("secrets");
+        }
+      });
     });
   });
 
@@ -72,16 +77,26 @@ app.route("/login")
   .post(function(req, res) {
     const username = req.body.username;
     const password = req.body.password;
+    // Query database using user email.
     User.findOne({
       email: username
     }, function(err, result) {
       if (!err) {
         if (result) {
-          if (result.password === md5(password)) {
-            res.render("secrets");
-          } else {
-            res.render("login");
-          }
+          // compare password hashes using bcrypt
+          bcrypt.compare(password, result.password, function(err, result) {
+            if (!err) {
+              if (result) {
+                res.render("secrets");
+                console.log("Login successful.");
+              } else {
+                res.render("login");
+                console.log("Invalid password.");
+              }
+            } else {
+              console.error(err);
+            }
+          });
         } else {
           res.render("login");
         }
